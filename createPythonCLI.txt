@@ -1,0 +1,124 @@
+### Step 1: Set Up the Python Environment
+
+First, make sure you have `boto3` and `Click` installed. You can install them using pip:
+
+```bash
+pip install boto3 click
+```
+
+### Step 2: Create the CLI Application
+
+Create a file named `cli.py`:
+
+```python
+import click
+import boto3
+from botocore.exceptions import ClientError
+
+# Initialize boto3 clients
+s3_client = boto3.client('s3')
+ecs_client = boto3.client('ecs')
+
+@click.group()
+def cli():
+    """A simple CLI to interact with AWS resources."""
+    pass
+
+@click.command()
+@click.argument('bucket_name')
+def list_s3_files(bucket_name):
+    """List files in the specified S3 bucket."""
+    try:
+        response = s3_client.list_objects_v2(Bucket=bucket_name)
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                click.echo(obj['Key'])
+        else:
+            click.echo("No files found in the bucket.")
+    except ClientError as e:
+        click.echo(f"Error accessing bucket: {e}")
+
+@click.command()
+@click.argument('cluster_name')
+@click.argument('service_name')
+def list_ecs_task_versions(cluster_name, service_name):
+    """List the versions of the ECS task definition for the specified service."""
+    try:
+        response = ecs_client.describe_services(
+            cluster=cluster_name,
+            services=[service_name]
+        )
+        task_definition_arn = response['services'][0]['taskDefinition']
+        task_definitions = ecs_client.list_task_definitions(
+            familyPrefix=task_definition_arn.split(":")[-1],
+            sort='DESC'
+        )
+
+        for td in task_definitions['taskDefinitionArns']:
+            click.echo(td)
+    except ClientError as e:
+        click.echo(f"Error accessing ECS service: {e}")
+
+# Register commands
+cli.add_command(list_s3_files)
+cli.add_command(list_ecs_task_versions)
+
+if __name__ == '__main__':
+    cli()
+```
+
+### Step 3: Basic Unit Tests
+
+Create a file named `test_cli.py` for unit tests using `unittest` and `unittest.mock`:
+
+```python
+import unittest
+from unittest.mock import patch
+import cli
+
+class TestCLI(unittest.TestCase):
+
+    @patch('cli.s3_client')
+    def test_list_s3_files(self, mock_s3_client):
+        mock_s3_client.list_objects_v2.return_value = {
+            'Contents': [{'Key': 'file1.txt'}, {'Key': 'file2.txt'}]
+        }
+
+        with patch('click.echo') as mock_echo:
+            cli.list_s3_files('my-test-bucket')
+            mock_echo.assert_any_call('file1.txt')
+            mock_echo.assert_any_call('file2.txt')
+
+    @patch('cli.ecs_client')
+    def test_list_ecs_task_versions(self, mock_ecs_client):
+        mock_ecs_client.describe_services.return_value = {
+            'services': [{'taskDefinition': 'arn:aws:ecs:us-west-2:123456789012:task-definition/my-task:1'}]
+        }
+        mock_ecs_client.list_task_definitions.return_value = {
+            'taskDefinitionArns': [
+                'arn:aws:ecs:us-west-2:123456789012:task-definition/my-task:1',
+                'arn:aws:ecs:us-west-2:123456789012:task-definition/my-task:2',
+            ]
+        }
+
+        with patch('click.echo') as mock_echo:
+            cli.list_ecs_task_versions('my-cluster', 'my-service')
+            mock_echo.assert_any_call('arn:aws:ecs:us-west-2:123456789012:task-definition/my-task:1')
+            mock_echo.assert_any_call('arn:aws:ecs:us-west-2:123456789012:task-definition/my-task:2')
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+### Step 4: Running the CLI and Tests
+
+1. **Run the CLI**:
+   ```bash
+   python cli.py list-s3-files <bucket_name>
+   python cli.py list-ecs-task-versions <cluster_name> <service_name>
+   ```
+
+2. **Run the Unit Tests**:
+   ```bash
+   python -m unittest test_cli.py
+   ```
